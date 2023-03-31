@@ -2,7 +2,7 @@
 
 # Motivation
 
-This project aims to provide a seamless integration of voice input with OpenAI's Whisper API and ChatGPT. By utilizing state-of-the-art voice recognition and natural language processing technologies, users can effortlessly interact with the application using speech, which will be transcribed and processed to provide accurate and useful responses.
+I often find that my writing speed is constrained by my typing abilities. One solution is to use automatic speech recognition, but it has three main disadvantages. Firstly, its accuracy can be limited. Secondly, it tends to be quite literal, requiring significant time for editing and revising. Lastly, it is difficult to go back and make changes if we change our thoughts midway. To address these issues, I developed this project using OpenAI's Whisper API for transcription, followed by the GPT-4 API to paraphrase the text in a more organized and logical manner by considering the entire content.
 
 # Usage
 
@@ -12,7 +12,7 @@ Configuration & Environment Setup
 Follow these steps to set up the project environment:
 
 1. Clone the repository
-2. cd yourrepository
+2. `cd VoiceNoteTaker`
 3. [Optional] Create a virtual environment: `python -m venv venv`
 4. [Optional] Activate the virtual environment: `venv\Scripts\activate` for Windows or `source venv/bin/activate` for Linux/Mac.
 5. Install the required dependencies: `pip install -r requirements.txt`
