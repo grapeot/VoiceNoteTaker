@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice to Text App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #recordButton {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #f44336;
+            color: white;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+        }
+        #recordButton.recording {
+            background-color: #4caf50;
+        }
+        textarea {
+            width: 100%;
+            min-height: 300px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <h1>Voice to Text App</h1>
+    <button id="recordButton">Start Recording</button>
+
+    <h2>Transcription</h2>
+    <textarea id="transcription" readonly></textarea>
+    <button id="copyTranscription">Copy Transcription</button>
+
+    <h2>Processed Text</h2>
+    <textarea id="processedText" readonly></textarea>
+    <button id="copyProcessedText">Copy Processed Text</button>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+
+        const recordButton = $("#recordButton");
+
+        recordButton.on("click", () => {
+            if (!mediaRecorder || mediaRecorder.state === "inactive") {
+                navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.addEventListener("dataavailable", event => {
+                        audioChunks.push(event.data);
+                    });
+
+                    mediaRecorder.addEventListener("stop", () => {
+                        const audioBlob = new Blob(audioChunks, { type: "audio/m4a" });
+                        const formData = new FormData();
+                        formData.append("audio", audioBlob);
+                        const transcriptionTextarea = $("#transcription");
+                        transcriptionTextarea.val("Transcribing...");
+
+                        $.ajax({
+                            url: "transcribe",
+                            type: "POST",
+                            data: formData,
+                            processData: false,
+                            contentType: false,
+                            success: (transcription) => {
+                                transcriptionTextarea.val(transcription); 
+
+                                $("#processedText").val("Processing...");
+                                $.ajax({
+                                    url: "process",
+                                    type: "POST",
+                                    data: JSON.stringify({ text: transcription }),
+                                    contentType: "application/json",
+                                    success: (processedText) => {
+                                        $("#processedText").val(processedText);
+                                    },
+                                    error: (error) => {
+                                        console.error("Error:", error);
+                                        $("#processedText").val("An error occurred. Please try again. " + JSON.stringify(error));
+                                    },
+                                });
+                            },
+                            error: (error) => {
+                                console.error("Error:", error);
+                                transcriptionTextarea.val("An error occurred. Please try again. " + JSON.stringify(error));
+                            },
+                        });
+                    });
+
+                    mediaRecorder.start();
+                    recordButton.text("Stop Recording");
+                    recordButton.addClass("recording");
+                    audioChunks = [];
+                }).catch(error => {
+                    console.error("Error:", error);
+                    alert("An error occurred while accessing the microphone. Please check your device settings.");
+                });
+            } else {
+                mediaRecorder.stop();
+                recordButton.text("Start Recording");
+                recordButton.removeClass("recording");
+            }
+        });
+
+        $("#copyTranscription").on("click", () => {
+            const textarea = document.getElementById("transcription");
+            textarea.select();
+            document.execCommand("copy");
+        });
+
+        $("#copyProcessedText").on("click", () => {
+            const textarea = document.getElementById("processedText");
+            textarea.select();
+            document.execCommand("copy");
+        });
+    </script>
+</body>
+</html>
