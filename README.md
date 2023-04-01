@@ -17,10 +17,14 @@ Follow these steps to set up the project environment:
 4. [Optional] Activate the virtual environment: `venv\Scripts\activate` for Windows or `source venv/bin/activate` for Linux/Mac.
 5. Install the required dependencies: `pip install -r requirements.txt`
 6.  Set up your OpenAI API key as an environment variable: `set OPENAI_API_KEY=your_api_key_here` for Windows and `export OPENAI_API_KEY=your_api_key_here` for Linux/Mac.
-7. Run the development server: `python app.py`
+7. Run the development server: `python main.py`
 
 Open your browser and navigate to http://localhost:5000 to access the web app.
 
 ⚠️ Warning
 
 This project is set up to use a development server, which is not suitable for production use. Please ensure that you do not deploy the application with the development server for production purposes. Instead, use a production-ready web server, such as Gunicorn or uWSGI, in conjunction with a reverse proxy like Nginx or Apache.
+
+## Docker usage
+One click deploy via Railway:
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/JINxPn?referralCode=GfxT3U)
