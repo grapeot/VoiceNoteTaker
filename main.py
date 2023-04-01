@@ -29,7 +29,7 @@ def transcribe():
 
             # Send audio file to Whisper ASR API
             with open(temp_output_file.name, 'rb') as file:
-                whisper_response = openai.Audio.transcribe('whisper-1', file)
+                whisper_response = openai.Audio.transcribe('whisper-1', file, prompt='简体中文')
 
     transcribed_text = whisper_response['text']
     print(transcribed_text)
