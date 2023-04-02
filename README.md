@@ -18,9 +18,7 @@ Follow these steps to set up the project environment:
 5. Install the required dependencies: `pip install -r requirements.txt`
 6. Set up your OpenAI API key as an environment variable: `set OPENAI_API_KEY=your_api_key_here` for Windows and `export OPENAI_API_KEY=your_api_key_here` for Linux/Mac.
 7. [Optional] If you want to run it as a Telegram bot, follow [this tutorial](https://core.telegram.org/bots/tutorial) to get a bot API token, and add it to your `.bashrc` or `.zshrc` like `export TELEGRAM_BOT_TOKEN=your_token_here`.
-8. For the standalone website, run the development server: `python main.py`. For the telegram bot, run `python telegram_bot.py`.
-
-Open your browser and navigate to http://localhost:5000 to access the web app.
+8. For the standalone website, run the development server: `python main.py`. Open your browser and navigate to http://localhost:5000 to access the web app. For the telegram bot, run `python telegram_bot.py`. And then talk to your registered bot to access the features.
 
 ⚠️ Warning
 
