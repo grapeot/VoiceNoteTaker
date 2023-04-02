@@ -13,7 +13,7 @@ telegram_api_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 print(telegram_api_token)
 
 async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text('Send me a voice message, and I will transcribe it for you.')
+    await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4.')
 
 async def transcribe_voice_message(update: Update, context: CallbackContext):
     file_id = update.message.voice.file_id
@@ -30,11 +30,13 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
             convert_audio_file_to_format(temp_audio_file.name, temp_output_file.name, OUTPUT_FORMAT)
             transcribed_text = core.transcribe_voice_message(temp_output_file.name)
     print(transcribed_text)
-    # await update.message.reply_text(transcribed_text)
+    await update.message.reply_text("Transcribed text:")
+    await update.message.reply_text(transcribed_text)
 
     # TODO: change to GPT-4 for whitelisted users
-    paraphrased_text = paraphrase_text(transcribed_text, 'gpt-3.5-turbo')
+    paraphrased_text = paraphrase_text(transcribed_text, 'gpt-4')
     print(paraphrased_text)
+    await update.message.reply_text("Paraphrased using GPT-4:")
     await update.message.reply_text(paraphrased_text)
 
 def main():
