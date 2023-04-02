@@ -2,3 +2,5 @@ pydub
 flask
 openai
 rapidjson
+python-telegram-bot
+requests
