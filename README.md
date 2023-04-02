@@ -26,5 +26,5 @@ Open your browser and navigate to http://localhost:5000 to access the web app.
 This project is set up to use a development server, which is not suitable for production use. Please ensure that you do not deploy the application with the development server for production purposes. Instead, use a production-ready web server, such as Gunicorn or uWSGI, in conjunction with a reverse proxy like Nginx or Apache.
 
 ## Docker usage
-One click deploy via Railway:
+One click deploy [a forked version](https://github.com/xingfanxia/VoiceNoteTaker) on Railway:
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/JINxPn?referralCode=GfxT3U)
