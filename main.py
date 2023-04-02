@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from pydub import AudioSegment
 import json
 from datetime import datetime
-from core import transcribe_voice_message, paraphrase_text
+from core import transcribe_voice_message, paraphrase_text, convert_audio_file_to_format
 
 app = Flask(__name__)
 
@@ -14,10 +14,6 @@ OUTPUT_FORMAT = "mp3"
 # For my use case, I want to log all the content to a file, so I can later use it for GPT analysis and dispatching.
 # Change it to an actual file name will enable this logging.
 PERSONAL_LOG_FILE = None
-
-def convert_file_to_format(input_file, output_file, OUTPUT_FORMAT):
-    audio = AudioSegment.from_file(input_file)
-    audio.export(output_file, format=OUTPUT_FORMAT)
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
@@ -33,11 +29,11 @@ def transcribe():
         audio_file.save(temp_audio_file.name)
         # Default is AAC, we need to convert it to mp3.
         with tempfile.NamedTemporaryFile(suffix=f'.{OUTPUT_FORMAT}') as temp_output_file:
-            convert_file_to_format(temp_audio_file.name, temp_output_file.name, OUTPUT_FORMAT)
+            convert_audio_file_to_format(temp_audio_file.name, temp_output_file.name, OUTPUT_FORMAT)
 
             # Send audio file to Whisper ASR API
             transcribed_text = transcribe_voice_message(temp_output_file.name)
-    
+
     print(transcribed_text)
     return jsonify(transcribed_text)
 
