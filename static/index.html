@@ -34,6 +34,7 @@
     <h2>Transcription</h2>
     <textarea id="transcription" readonly></textarea>
     <button id="copyTranscription">Copy Transcription</button>
+    <button id="processText">Reprocess Text</button>
 
     <h2>Processed Text</h2>
     <textarea id="processedText" readonly></textarea>
@@ -107,6 +108,26 @@
                 recordButton.text("Start Recording");
                 recordButton.removeClass("recording");
             }
+
+            $('#processText').click(function() {
+                const transcriptionTextarea = $("#transcription");
+                const processedTextArea = $("#processedText");
+                processedTextArea.val("Processing...");
+
+                $.ajax({
+                    url: "process",
+                    type: "POST",
+                    data: JSON.stringify({ text: transcriptionTextarea.val() }),
+                    contentType: "application/json",
+                    success: (processedText) => {
+                        processedTextArea.val(processedText);
+                    },
+                    error: (error) => {
+                        console.error("Error:", error);
+                        processedTextArea.val("An error occurred. Please try again. " + JSON.stringify(error));
+                    },
+                });
+            });
         });
 
         $("#copyTranscription").on("click", () => {
