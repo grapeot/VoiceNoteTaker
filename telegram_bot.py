@@ -14,7 +14,7 @@ telegram_api_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 print(f'Bot token: {telegram_api_token}')
 
 async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4.')
+    await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4. Type /help for more information.')
 
 async def help(update: Update, context: CallbackContext):
     await update.message.reply_text("""*YaGe Voice Note Taker Bot*
@@ -37,7 +37,11 @@ async def data(update: Update, context: CallbackContext):
     member = await context.bot.get_chat_member(chat_id, user_id)
     user_full_name = member.user.full_name
     print(f'[{user_full_name}] /data')
-    await update.message.reply_text(str(context.user_data))
+    to_send = str(context.user_data)
+    if len(to_send) > 4096:
+        await update.message.reply_text(f"Your data is too long to be displayed. It contains {len(context.user_data['transcript'])} entries. The last message is {context.user_data['transcript'][-1]}, and the last paraphrase is {context.user_data['paraphrased'][-1]}. It records across the time period from {context.user_data['transcript'][0]['date']} to {context.user_data['transcript'][-1]['date']}.")
+    else:
+        await update.message.reply_text(to_send)
 
 async def clear(update: Update, context: CallbackContext):
     """
