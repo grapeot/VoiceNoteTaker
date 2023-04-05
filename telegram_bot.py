@@ -6,7 +6,7 @@ from telegram.ext import CommandHandler, MessageHandler, CallbackContext, Applic
 import telegram.ext.filters as filters
 
 import core
-from core import paraphrase_text, convert_audio_file_to_format
+from core import paraphrase_text, convert_audio_file_to_format, preprocess_text
 
 OUTPUT_FORMAT = "mp3"
 
@@ -39,7 +39,7 @@ async def data(update: Update, context: CallbackContext):
     print(f'[{user_full_name}] /data')
     to_send = str(context.user_data)
     if len(to_send) > 4096:
-        await update.message.reply_text(f"Your data is too long to be displayed. It contains {len(context.user_data['transcript'])} entries. The last message is {context.user_data['transcript'][-1]}, and the last paraphrase is {context.user_data['paraphrased'][-1]}. It records across the time period from {context.user_data['transcript'][0]['date']} to {context.user_data['transcript'][-1]['date']}.")
+        await update.message.reply_text(f"Your data is too long to be displayed. It contains {len(context.user_data['history'])} entries. The last message is {context.user_data['history'][-1]}. It records across the time period from {context.user_data['history'][0]['date']} to {context.user_data['history'][-1]['date']}.")
     else:
         await update.message.reply_text(to_send)
 
@@ -72,10 +72,8 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
         context.user_data['user_full_name'] = user_full_name
     if 'user_id' not in context.user_data:
         context.user_data['user_id'] = user_id
-    if 'transcript' not in context.user_data:
-        context.user_data['transcript'] = []
-    if 'paraphrased' not in context.user_data:
-        context.user_data['paraphrased'] = []
+    if 'history' not in context.user_data:
+        context.user_data['history'] = []
     
     file_id = update.message.voice.file_id
     voice_file = await context.bot.get_file(file_id)
@@ -91,21 +89,22 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
             convert_audio_file_to_format(temp_audio_file.name, temp_output_file.name, OUTPUT_FORMAT)
             transcribed_text = core.transcribe_voice_message(temp_output_file.name)
     print(f'[{user_full_name}] {transcribed_text}')
-    context.user_data['transcript'].append({
-        'date': update.message.date,
-        'content': transcribed_text,
-
-    })
     await update.message.reply_text("Transcribed text:")
     await update.message.reply_text(transcribed_text)
 
-    paraphrased_text = paraphrase_text(transcribed_text, 'gpt-4')
+    preprocessed_text = preprocess_text(transcribed_text)
+    print(f'[{user_full_name}] {preprocessed_text}')
+    result_obj = json.loads(preprocessed_text)
+    model = 'gpt-3.5-turbo' if result_obj['tag'] == '聊天' else 'gpt-4'
+    result_obj['model'] = model
+    result_obj['transcribed'] = transcribed_text
+    print(f'[{user_full_name}] {result_obj}')
+    paraphrased_text = paraphrase_text(result_obj['content'], model)
+    result_obj['paraphrased'] = paraphrased_text
+    result_obj['date'] = update.message.date
     print(f'[{user_full_name}] {paraphrased_text}')
-    context.user_data['paraphrased'].append({
-        'date': update.message.date,
-        'content': paraphrased_text,
-    })
-    await update.message.reply_text("Paraphrased using GPT-4:")
+    context.user_data['history'].append(result_obj)
+    await update.message.reply_text(f"Paraphrased using {model.upper()}:")
     await update.message.reply_text(paraphrased_text)
 
 def main():
