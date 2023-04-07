@@ -6,7 +6,8 @@ from telegram.ext import CommandHandler, MessageHandler, CallbackContext, Applic
 import telegram.ext.filters as filters
 
 import core
-from core import paraphrase_text, convert_audio_file_to_format, preprocess_text
+from core import gpt_process_text, convert_audio_file_to_format, preprocess_text
+from prompts import PROMPTS
 
 OUTPUT_FORMAT = "mp3"
 
@@ -82,30 +83,50 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
     voice_data = await voice_file.download_as_bytearray()
     
     # Call the Whisper ASR API
-    with tempfile.NamedTemporaryFile('wb+', suffix=f'.ogg') as temp_audio_file:
-        temp_audio_file.write(voice_data)
-        temp_audio_file.seek(0)
-        with tempfile.NamedTemporaryFile(suffix=f'.{OUTPUT_FORMAT}') as temp_output_file:
-            convert_audio_file_to_format(temp_audio_file.name, temp_output_file.name, OUTPUT_FORMAT)
-            transcribed_text = core.transcribe_voice_message(temp_output_file.name)
-    print(f'[{user_full_name}] {transcribed_text}')
-    await update.message.reply_text("Transcribed text:")
-    await update.message.reply_text(transcribed_text)
+    try:
+        with tempfile.NamedTemporaryFile('wb+', suffix=f'.ogg') as temp_audio_file:
+            temp_audio_file.write(voice_data)
+            temp_audio_file.seek(0)
+            with tempfile.NamedTemporaryFile(suffix=f'.{OUTPUT_FORMAT}') as temp_output_file:
+                convert_audio_file_to_format(temp_audio_file.name, temp_output_file.name, OUTPUT_FORMAT)
+                transcribed_text = core.transcribe_voice_message(temp_output_file.name)
+        print(f'[{user_full_name}] {transcribed_text}')
+        await update.message.reply_text("Transcribed text:")
+        await update.message.reply_text(transcribed_text)
+    except Exception as e:
+        print(f'[{user_full_name}] Error: {e}')
+        await update.message.reply_text(f"Error: {e}")
+        return
 
     preprocessed_text = preprocess_text(transcribed_text)
     print(f'[{user_full_name}] {preprocessed_text}')
+    # Some more info on the history and last_text_field:
+    # The history records the order of the fields being calculated, from which how the idea got transformed could be reproduced.
+    # The last_text_field records the last field that was calculated, which is used to determine which field to use as the input for the next step.
     result_obj = json.loads(preprocessed_text)
+    result_obj['history'] = ['tag']
+    result_obj['last_text_field'] = 'content'
     model = 'gpt-3.5-turbo' if result_obj['tag'] == '聊天' else 'gpt-4'
     result_obj['model'] = model
+    result_obj['history'].append('model')
     result_obj['transcribed'] = transcribed_text
+    result_obj['history'].append('transcribed')
+    result_obj['last_text_field'] = 'transcribed'
     print(f'[{user_full_name}] {result_obj}')
-    paraphrased_text = paraphrase_text(result_obj['content'], model)
-    result_obj['paraphrased'] = paraphrased_text
-    result_obj['date'] = update.message.date
-    print(f'[{user_full_name}] {paraphrased_text}')
-    context.user_data['history'].append(result_obj)
-    await update.message.reply_text(f"Paraphrased using {model.upper()}:")
-    await update.message.reply_text(paraphrased_text)
+    try:
+        paraphrased_text = gpt_process_text(result_obj['content'], PROMPTS['paraphrase'], model)
+        result_obj['paraphrased'] = paraphrased_text
+        result_obj['history'].append('paraphrased')
+        result_obj['date'] = update.message.date
+        result_obj['last_text_field'] = 'paraphrased'
+        print(f'[{user_full_name}] {paraphrased_text}')
+        context.user_data['history'].append(result_obj)
+        await update.message.reply_text(f"Paraphrased using {model.upper()}:")
+        await update.message.reply_text(paraphrased_text)
+    except Exception as e:
+        print(f'[{user_full_name}] Error: {e}')
+        await update.message.reply_text(f"Error: {e}")
+        return
 
 def main():
     persistence = PicklePersistence(filepath="gpt_archive.pickle")

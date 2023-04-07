@@ -4,7 +4,8 @@ from flask import Flask, request, jsonify, send_from_directory
 from pydub import AudioSegment
 import json
 from datetime import datetime
-from core import transcribe_voice_message, paraphrase_text, convert_audio_file_to_format
+from core import transcribe_voice_message, gpt_process_text, convert_audio_file_to_format
+from prompts import PROMPTS
 
 app = Flask(__name__)
 
@@ -45,7 +46,7 @@ def process_audio():
         text = data['text']
 
         # Send transcribed text to ChatGPT with the provided system prompt
-        processed_text = paraphrase_text(text)
+        processed_text = gpt_process_text(text, PROMPTS['paraphrase'], 'gpt-4')
         print(processed_text)
         if PERSONAL_LOG_FILE:
             log_content_to_file(processed_text, PERSONAL_LOG_FILE)
