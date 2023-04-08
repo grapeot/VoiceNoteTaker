@@ -63,6 +63,16 @@ async def clear(update: Update, context: CallbackContext):
 
 # TODO: send out daily summaries to users.
 
+async def set_last_message(update: Update, context: CallbackContext):
+    text = update.message.text
+    context.user_data['history'].append({
+        'date': update.message.date,
+        'set_content': text,
+        'last_text_field': 'set_content',
+        'history': ['set_content']
+    })
+    await update.message.reply_text("Your message has been set as the last message. Now you can use the buttons to transform it.")
+
 async def warn_if_not_voice_message(update: Update, context: CallbackContext):
     if not update.message.voice:
         await update.message.reply_text("Please send me a voice message. I will transcribe it and paraphrase for you.")
@@ -117,10 +127,10 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
                 transcribed_text = core.transcribe_voice_message(temp_output_file.name)
         print(f'[{user_full_name}] {transcribed_text}')
         await update.message.reply_text("Transcribed text:")
-        await update.message.reply_text(transcribed_text)
+        await update.message.reply_text(transcribed_text, reply_markup=markup)
     except Exception as e:
         print(f'[{user_full_name}] Error: {e}')
-        await update.message.reply_text(f"Error: {e}")
+        await update.message.reply_text(f"Error: {e}", reply_markup=markup)
         return
 
     preprocessed_text = preprocess_text(transcribed_text)
@@ -147,11 +157,15 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
         print(f'[{user_full_name}] {paraphrased_text}')
         context.user_data['history'].append(result_obj)
         await update.message.reply_text(f"Paraphrased using {model.upper()}:")
-        await update.message.reply_text(paraphrased_text)
+        await update.message.reply_text(paraphrased_text, reply_markup=markup)
     except Exception as e:
         print(f'[{user_full_name}] Error: {e}')
-        await update.message.reply_text(f"Error: {e}")
+        await update.message.reply_text(f"Error: {e}", reply_markup=markup)
         return
+
+class EmojiFilter(filters.UpdateFilter):
+    def filter(self, update: Update):
+        return update.message.text in CHOICE_TO_PROMPT.keys()
 
 def main():
     persistence = PicklePersistence(filepath="gpt_archive.pickle")
@@ -164,10 +178,11 @@ def main():
     application.add_handler(CommandHandler("data", data))
 
     # We don't use ConversationHandler here because we don't need to keep track of the state.
+    application.add_handler(UpdateHandler(EmojiFilter(), warn_if_not_voice_message))
     application.add_handler(MessageHandler(filters.VOICE & ~filters.COMMAND, transcribe_voice_message))
     for target_usage in CHOICE_TO_PROMPT.keys():
         application.add_handler(MessageHandler(filters.Regex('^' + target_usage + '$'), process_thoughts))
-    application.add_handler(MessageHandler(~filters.VOICE & ~filters.COMMAND, warn_if_not_voice_message))
+    application.add_handler(MessageHandler(~filters.VOICE & ~filters.COMMAND, set_last_message))
 
     # Run the bot until the user presses Ctrl-C
     print('Bot is running...')

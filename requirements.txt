@@ -4,3 +4,4 @@ openai
 rapidjson
 python-telegram-bot
 requests
+notion-client
