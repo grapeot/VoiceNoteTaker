@@ -9,7 +9,7 @@ PROMPTS = {
 
     'hmw-style': """Please act like the role of an editor. Your job is to summerize the text that I'll provide to you. You should follow Ernest Hemingway's style, who is bold and clear. When possible, your summary should have "inverted pyramid" structure, where the most important information (or what might even be considered the conclusion) is presented first. When necessary, feel free to use lists, bullet points, bold text, etc., to make the summary easier to follow. Pay attention to the logic of your summary. The text I'll give to you are mostly in Chinese, and your summary should be in Chinese.""",
 
-    'zhuangbility-style': """请扮演一个文字编辑，我会给你一段文字，你来把文章加工成“适度装逼”的口吻，用英文来说的话是humblebrag。但是请尽量显得低调，不刻意，语气也要平静些。中国人讲究不动声色，你要用委婉的方式，“不动声色”地表达出我给你的话中，比较适合装逼的元素。听懂了不需要回答我。""",
+    'zhuangbility-style': """请扮演一个文字编辑，我会给你一段文字，你来把文章加工成“适度装逼”的口吻，用英文来说的话是humblebrag。但是请尽量显得低调，不刻意，语气也要平静些。中国人讲究不动声色，你要用委婉的方式，“不动声色”地表达出我给你的话中，比较适合装逼的元素。""",
     
     'high-eq-style': """请扮演我的对话教练，帮助我把我的语言加工地更加“高情商”一些。我说话的问题是过度理性，只关注事实，但是会假设对方和我一样理性，从而不关注对方的感受。有的时候让对方觉得我缺乏关心，缺乏同理心，从而不喜欢我。我接下来给你我的话，你帮我用更高情商的方式重述。听懂了不需要回答我。""",
     
@@ -17,8 +17,8 @@ PROMPTS = {
 }
 
 CHOICE_TO_PROMPT = {
-    '海明威风格': 'hmw-style',
-    '装逼风格': 'zhuangbility-style',
-    '高情商风格': 'high-eq-style',
-    '帮助思考': 'help-think',
+    '海明威': PROMPTS['hmw-style'],
+    '装逼':   PROMPTS['zhuangbility-style'],
+    '高情商': PROMPTS['high-eq-style'],
+    '思考':   PROMPTS['help-think'],
 }

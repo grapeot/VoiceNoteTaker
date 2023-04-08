@@ -1,21 +1,26 @@
 import os
 import tempfile
 import json
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import CommandHandler, MessageHandler, CallbackContext, Application, PicklePersistence
 import telegram.ext.filters as filters
 
 import core
-from core import gpt_process_text, convert_audio_file_to_format, preprocess_text
-from prompts import PROMPTS
+from core import gpt_process_text, convert_audio_file_to_format, preprocess_text, gpt_iterate_on_thoughts
+from prompts import PROMPTS, CHOICE_TO_PROMPT
 
 OUTPUT_FORMAT = "mp3"
 
 telegram_api_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 print(f'Bot token: {telegram_api_token}')
 
+reply_keyboard = [
+    list(CHOICE_TO_PROMPT.keys())
+]
+markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
+
 async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4. Type /help for more information.')
+    await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4. Type /help for more information.', reply_markup=markup)
 
 async def help(update: Update, context: CallbackContext):
     await update.message.reply_text("""*YaGe Voice Note Taker Bot*
@@ -61,6 +66,26 @@ async def clear(update: Update, context: CallbackContext):
 async def warn_if_not_voice_message(update: Update, context: CallbackContext):
     if not update.message.voice:
         await update.message.reply_text("Please send me a voice message. I will transcribe it and paraphrase for you.")
+
+async def process_thoughts(update: Update, context: CallbackContext):
+    if len(context.user_data['history']) == 0:
+        await update.message.reply_text("You need to send me a text message first before we can work on yoru thought.")
+        return
+    print(context.user_data['history'][-1])
+    last_thought = context.user_data['history'][-1]
+    last_text_field = last_thought['last_text_field']
+    last_thought_text = last_thought[last_text_field]
+    target_usage = update.message.text
+    result = gpt_iterate_on_thoughts(last_thought_text, target_usage)
+    new_text_field = last_text_field + '_' + target_usage
+    # When the target usage is 思考, we don't update the last_text_field because it's not a continuation or processed version of the previous thought, but a detour with inspirations.
+    if target_usage != '思考':
+        context.user_data['history'][-1]['last_text_field'] = new_text_field
+    context.user_data['history'][-1]['history'].append(target_usage)
+    context.user_data['history'][-1][new_text_field] = result
+    print(context.user_data['history'][-1])
+    await update.message.reply_text(result)
+    
 
 async def transcribe_voice_message(update: Update, context: CallbackContext):
     chat_id = context._chat_id
@@ -138,8 +163,10 @@ def main():
     application.add_handler(CommandHandler("clear", clear))
     application.add_handler(CommandHandler("data", data))
 
-    # on non command i.e message
+    # We don't use ConversationHandler here because we don't need to keep track of the state.
     application.add_handler(MessageHandler(filters.VOICE & ~filters.COMMAND, transcribe_voice_message))
+    for target_usage in CHOICE_TO_PROMPT.keys():
+        application.add_handler(MessageHandler(filters.Regex('^' + target_usage + '$'), process_thoughts))
     application.add_handler(MessageHandler(~filters.VOICE & ~filters.COMMAND, warn_if_not_voice_message))
 
     # Run the bot until the user presses Ctrl-C
