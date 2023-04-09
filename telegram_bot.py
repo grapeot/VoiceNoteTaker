@@ -135,10 +135,16 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
 
     preprocessed_text = preprocess_text(transcribed_text)
     print(f'[{user_full_name}] {preprocessed_text}')
+    # Sometimes due to the token limit of GPT-3.5, the preprocessed_text is truncated. We need to do some error handling here, defaulting to the original text.
+    try:
+        result_obj = json.loads(preprocessed_text)
+    except Exception as e:
+        print(f'[{user_full_name}] Error: {e}')
+        result_obj = {'tag': '思考', 'content': transcribed_text}
+        
     # Some more info on the history and last_text_field:
     # The history records the order of the fields being calculated, from which how the idea got transformed could be reproduced.
     # The last_text_field records the last field that was calculated, which is used to determine which field to use as the input for the next step.
-    result_obj = json.loads(preprocessed_text)
     result_obj['history'] = ['tag']
     result_obj['last_text_field'] = 'content'
     model = 'gpt-3.5-turbo' if result_obj['tag'] == '聊天' else 'gpt-4'
@@ -163,10 +169,6 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
         await update.message.reply_text(f"Error: {e}", reply_markup=markup)
         return
 
-class EmojiFilter(filters.UpdateFilter):
-    def filter(self, update: Update):
-        return update.message.text in CHOICE_TO_PROMPT.keys()
-
 def main():
     persistence = PicklePersistence(filepath="gpt_archive.pickle")
     application = Application.builder().token(telegram_api_token).persistence(persistence).build()
@@ -178,7 +180,6 @@ def main():
     application.add_handler(CommandHandler("data", data))
 
     # We don't use ConversationHandler here because we don't need to keep track of the state.
-    application.add_handler(UpdateHandler(EmojiFilter(), warn_if_not_voice_message))
     application.add_handler(MessageHandler(filters.VOICE & ~filters.COMMAND, transcribe_voice_message))
     for target_usage in CHOICE_TO_PROMPT.keys():
         application.add_handler(MessageHandler(filters.Regex('^' + target_usage + '$'), process_thoughts))
