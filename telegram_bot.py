@@ -19,6 +19,21 @@ reply_keyboard = [
 ]
 markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
 
+async def initialize_user_data(context: CallbackContext):
+    """
+    Initialize the user data.
+    """
+    chat_id = context._chat_id
+    user_id = context._user_id
+    member = await context.bot.get_chat_member(chat_id, user_id)
+    user_full_name = member.user.full_name
+    if 'user_full_name' not in context.user_data:
+        context.user_data['user_full_name'] = user_full_name
+    if 'user_id' not in context.user_data:
+        context.user_data['user_id'] = user_id
+    if 'history' not in context.user_data:
+        context.user_data['history'] = []
+
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4. Type /help for more information.', reply_markup=markup)
 
@@ -65,6 +80,7 @@ async def clear(update: Update, context: CallbackContext):
 
 async def set_last_message(update: Update, context: CallbackContext):
     text = update.message.text
+    await initialize_user_data(context)
     context.user_data['history'].append({
         'date': update.message.date,
         'set_content': text,
@@ -104,12 +120,7 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
     user_full_name = member.user.full_name
     # We need to log the user info and histories in the user_data so we can send out daily summaries.
     # Check the help message for more details.
-    if 'user_full_name' not in context.user_data:
-        context.user_data['user_full_name'] = user_full_name
-    if 'user_id' not in context.user_data:
-        context.user_data['user_id'] = user_id
-    if 'history' not in context.user_data:
-        context.user_data['history'] = []
+    await initialize_user_data(context)
     
     file_id = update.message.voice.file_id
     voice_file = await context.bot.get_file(file_id)
