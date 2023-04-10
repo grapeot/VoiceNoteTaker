@@ -1,6 +1,7 @@
 import os
 import tempfile
 import json
+import re 
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     CommandHandler,
@@ -113,6 +114,7 @@ async def warn_if_not_voice_message(update: Update, context: CallbackContext) ->
     return REGULAR
 
 async def process_thoughts(update: Update, context: CallbackContext) -> int:
+    await initialize_user_data(context)
     if len(context.user_data['history']) == 0:
         await update.message.reply_text("You need to send me a text message first before we can work on yoru thought.")
         return
@@ -253,6 +255,7 @@ async def outline_transcribe_voice_message(update: Update, context: CallbackCont
     user_full_name = await get_user_full_name(update, context)
     transcribed_text = await transcribe_message(user_full_name, update, context)
 
+    # Implementation V1: use JSON as the intermediate format.
     # Identify the intent and content of the transcribed text.
     parsed_text = classify_outline_content(transcribed_text)
     if parsed_text['intent'] == 'exit':
@@ -260,15 +263,28 @@ async def outline_transcribe_voice_message(update: Update, context: CallbackCont
         return REGULAR
     if parsed_text['intent'] == 'append':
         if parsed_text['line'] == -1:
-            context.user_data['outline_text'].append(parsed_text['content'])
+            context.user_data['outline_text'].append('* ' + parsed_text['content'])
         else:
             # note the python index starts from 0, but the line number starts from 1.
-            context.user_data['outline_text'].insert(parsed_text['line'], parsed_text['content'])
+            context.user_data['outline_text'].insert(parsed_text['line'], '* ' + parsed_text['content'])
     if parsed_text['intent'] == 'modify':
         # note the python index starts from 0, but the line number starts from 1.
-        context.user_data['outline_text'][parsed_text['line'] - 1] = parsed_text['content']
-
+        context.user_data['outline_text'][parsed_text['line'] - 1] = '* ' + parsed_text['content']
     await update.message.reply_text('\n'.join(context.user_data['outline_text']))
+
+    # Implementation V2: directly use GPT to get the new text
+    # text = '\n'.join(context.user_data['outline_text'])
+    # new_text = gpt_process_text(PROMPTS['language-text-editor-user-template'].format(text=text, instruction=transcribed_text), 
+    #                             PROMPTS['language-text-editor-system'], 'gpt-4')
+    # if new_text == 'exit':
+    #     await update.message.reply_text('Exiting outline mode.')
+    #     return REGULAR
+    # text = new_text.split('\n')
+    # # For some reason, GPT-3.5 or 4 will sometimes return "TEXT:", we need to remove it
+    # text = [x.strip() for x in text if re.search(r'^\s*TEXT:\s*$', x) is None]
+    # context.user_data['outline_text'] = text
+    # await update.message.reply_text('\n'.join(['* ' + x for x in context.user_data['outline_text']]))
+    
     return OUTLINE
 
 def main():
