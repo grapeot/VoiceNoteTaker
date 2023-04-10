@@ -25,6 +25,35 @@ def transcribe_voice_message(filename: str) -> str:
     transcribed_text = whisper_response['text']
     return transcribed_text
 
+def classify_outline_content(text: str) -> Dict[str, str]:
+    """Invokes GPT-3.5 API to tell the actual content of the request.
+    Args:
+        text (str): the initial transcribed text to be processed.
+
+    Returns:
+    """
+    parse_result = gpt_process_text(text, PROMPTS['outline-content-classification'], model='gpt-3.5-turbo')
+    try:
+        parse_result = json.loads(parse_result)
+    except json.decoder.JSONDecodeError:
+        # Default to append
+        parse_result = {'content': text, 'intent': 'append', 'line': -1}
+    return parse_result
+
+def classify_outline_intent_mode(text: str) -> bool:
+    """Invokes GPT-3.5 API to tell whether the intent of the given text is to enter the outline mode.
+    Args:
+        text (str): the initial transcribed text to be processed.
+
+    Returns:
+        bool: whether the intent of the given text is to enter the outline mode.
+    """
+    if len(text) > 30:
+        # A small trick is, because the outline mode triggering word is so short, we can directly tell outline mode is not the intent when the text is too long.
+        return False
+    processed_text = gpt_process_text(text, PROMPTS['outline-intent-classification'], model='gpt-3.5-turbo')
+    return processed_text == 'True'
+
 def preprocess_text(text: str) -> str:
     """Invokes GPT-3.5 API to preprocess the text.
     We use certain format to parse the text, and output a json with two fields, content and tag.

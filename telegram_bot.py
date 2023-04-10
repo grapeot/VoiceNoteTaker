@@ -13,7 +13,13 @@ from telegram.ext import (
 import telegram.ext.filters as filters
 
 import core
-from core import gpt_process_text, convert_audio_file_to_format, preprocess_text, gpt_iterate_on_thoughts
+from core import (
+    gpt_process_text,
+    convert_audio_file_to_format,
+    classify_outline_intent_mode,
+    gpt_iterate_on_thoughts,
+    classify_outline_content,
+)
 from prompts import PROMPTS, CHOICE_TO_PROMPT
 
 OUTPUT_FORMAT = "mp3"
@@ -21,10 +27,8 @@ OUTPUT_FORMAT = "mp3"
 telegram_api_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 print(f'Bot token: {telegram_api_token}')
 
-reply_keyboard = [
-    list(CHOICE_TO_PROMPT.keys())
-]
-markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
+target_usage_markup = ReplyKeyboardMarkup([list(CHOICE_TO_PROMPT.keys())], resize_keyboard=True)
+outline_markup = ReplyKeyboardMarkup([['End outline mode.']], resize_keyboard=True)
 
 REGULAR, OUTLINE = range(2)
 
@@ -44,7 +48,7 @@ async def initialize_user_data(context: CallbackContext):
         context.user_data['history'] = []
 
 async def start(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4. Type /help for more information.', reply_markup=markup)
+    await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4. Type /help for more information.', reply_markup=target_usage_markup)
     return REGULAR
 
 async def help(update: Update, context: CallbackContext) -> int:
@@ -120,6 +124,7 @@ async def process_thoughts(update: Update, context: CallbackContext) -> int:
     result = gpt_iterate_on_thoughts(last_thought_text, target_usage)
     new_text_field = last_text_field + '_' + target_usage
     # When the target usage is 思考, we don't update the last_text_field because it's not a continuation or processed version of the previous thought, but a detour with inspirations.
+    # TODO: make it part of the usage definition
     if target_usage != '思考':
         context.user_data['history'][-1]['last_text_field'] = new_text_field
     context.user_data['history'][-1]['history'].append(target_usage)
@@ -128,49 +133,81 @@ async def process_thoughts(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(result)
     return REGULAR
 
-async def transcribe_voice_message(update: Update, context: CallbackContext) -> int:
-    chat_id = context._chat_id
-    user_id = context._user_id
-    member = await context.bot.get_chat_member(chat_id, user_id)
-    user_full_name = member.user.full_name
-    # We need to log the user info and histories in the user_data so we can send out daily summaries.
-    # Check the help message for more details.
-    await initialize_user_data(context)
-    
+async def transcribe_message(user_full_name: str, update: Update, context: CallbackContext) -> str:
+    """A utility function to transcribe a voice message.
+
+    Args:
+        user_full_name (str): full name of the user
+        update (Update): from the telegram bot API
+        context (CallbackContext): from the telegram bot API
+
+    Returns:
+        str: transcribed text
+    """
     file_id = update.message.voice.file_id
     voice_file = await context.bot.get_file(file_id)
     
     # Download the voice message
     voice_data = await voice_file.download_as_bytearray()
+
+    with tempfile.NamedTemporaryFile('wb+', suffix=f'.ogg') as temp_audio_file:
+        temp_audio_file.write(voice_data)
+        temp_audio_file.seek(0)
+        with tempfile.NamedTemporaryFile(suffix=f'.{OUTPUT_FORMAT}') as temp_output_file:
+            convert_audio_file_to_format(temp_audio_file.name, temp_output_file.name, OUTPUT_FORMAT)
+            transcribed_text = core.transcribe_voice_message(temp_output_file.name)
+    print(f'[{user_full_name}] {transcribed_text}')
+    return transcribed_text
+
+async def get_user_full_name(update: Update, context: CallbackContext) -> str:
+    """A utility function to get the full name of the user.
+
+    Args:
+        update (Update): from the telegram bot API
+        context (CallbackContext): from the telegram bot API
+
+    Returns:
+        str: full name of the user
+    """
+    chat_id = context._chat_id
+    user_id = context._user_id
+    member = await context.bot.get_chat_member(chat_id, user_id)
+    user_full_name = member.user.full_name
+    return user_full_name
+
+async def transcribe_voice_message(update: Update, context: CallbackContext) -> int:
+    user_full_name = await get_user_full_name(update, context)
+    # We need to log the user info and histories in the user_data so we can send out daily summaries.
+    # Check the help message for more details.
+    await initialize_user_data(context)
     
     # Call the Whisper ASR API
     try:
-        with tempfile.NamedTemporaryFile('wb+', suffix=f'.ogg') as temp_audio_file:
-            temp_audio_file.write(voice_data)
-            temp_audio_file.seek(0)
-            with tempfile.NamedTemporaryFile(suffix=f'.{OUTPUT_FORMAT}') as temp_output_file:
-                convert_audio_file_to_format(temp_audio_file.name, temp_output_file.name, OUTPUT_FORMAT)
-                transcribed_text = core.transcribe_voice_message(temp_output_file.name)
-        print(f'[{user_full_name}] {transcribed_text}')
+        transcribed_text = await transcribe_message(user_full_name, update, context)
         await update.message.reply_text("Transcribed text:")
-        await update.message.reply_text(transcribed_text, reply_markup=markup)
+        await update.message.reply_text(transcribed_text, reply_markup=target_usage_markup)
     except Exception as e:
         print(f'[{user_full_name}] Error: {e}')
-        await update.message.reply_text(f"Error: {e}", reply_markup=markup)
+        await update.message.reply_text(f"Error: {e}", reply_markup=target_usage_markup)
         return REGULAR
 
-    preprocessed_text = preprocess_text(transcribed_text)
-    print(f'[{user_full_name}] {preprocessed_text}')
+    # Disable the preprocessing for now due to the poor performance of GPT-3.5.
+    # We may resume this design when we have more thoughts on the prompts, ideas and chains.
+    # preprocessed_text = preprocess_text(transcribed_text)
+    # print(f'[{user_full_name}] {preprocessed_text}')
     # Sometimes due to the token limit of GPT-3.5, the preprocessed_text is truncated. We need to do some error handling here, defaulting to the original text.
-    try:
-        result_obj = json.loads(preprocessed_text)
-    except Exception as e:
-        print(f'[{user_full_name}] Error: {e}')
-        result_obj = {'tag': '思考', 'content': transcribed_text}
-        
+    # try:
+        # result_obj = json.loads(preprocessed_text)
+    # except Exception as e:
+        # print(f'[{user_full_name}] Error: {e}')
+        # result_obj = {'tag': '思考', 'content': transcribed_text}
+
+    result_obj = {'tag': '思考', 'content': transcribed_text}
     # Model switch
-    if result_obj['tag'] == '草稿':
-        await update.message.reply_text("Entering outline mode.")
+    if classify_outline_intent_mode(result_obj['content']):
+        await update.message.reply_text("Entering outline mode. Now you can use natural language to edit the outline.")
+        context.user_data['outline_text'] = []
+        print(f'[{user_full_name}] Entering outline mode.')
         return OUTLINE
     
     # Some more info on the history and last_text_field:
@@ -195,55 +232,69 @@ async def transcribe_voice_message(update: Update, context: CallbackContext) -> 
         print(f'[{user_full_name}] {paraphrased_text}')
         context.user_data['history'].append(result_obj)
         await update.message.reply_text(f"Paraphrased using {model.upper()}:")
-        await update.message.reply_text(paraphrased_text, reply_markup=markup)
+        await update.message.reply_text(paraphrased_text, reply_markup=target_usage_markup)
     except Exception as e:
         print(f'[{user_full_name}] Error: {e}')
-        await update.message.reply_text(f"Error: {e}", reply_markup=markup)
+        await update.message.reply_text(f"Error: {e}", reply_markup=target_usage_markup)
         return REGULAR
 
     return REGULAR
 
-async def fall_back_to_regular(update: Update, context: CallbackContext) -> int:
+async def end_outline_mode(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
-        "Sorry, I didn't understand that command. Falling back to regular mode.",
-        reply_markup=markup,
+        "End outline mode. Back to regular mode.",
+        reply_markup=target_usage_markup,
     )
+    print(f'[{get_user_full_name(update, context)}] Exiting outline mode.')
     return REGULAR
 
 async def outline_transcribe_voice_message(update: Update, context: CallbackContext) -> int:
     # Transcribe the voice message, without GPT paraphrasing.
-    # Preprocess the messages on:
-    # 1. End the mode
-    # 2. Add a new line
-    # 3. Replace an existing line
-    await update.message.reply_text("I'm working!")
+    user_full_name = await get_user_full_name(update, context)
+    transcribed_text = await transcribe_message(user_full_name, update, context)
+
+    # Identify the intent and content of the transcribed text.
+    parsed_text = classify_outline_content(transcribed_text)
+    if parsed_text['intent'] == 'exit':
+        await update.message.reply_text('Exiting outline mode.')
+        return REGULAR
+    if parsed_text['intent'] == 'append':
+        if parsed_text['line'] == -1:
+            context.user_data['outline_text'].append(parsed_text['content'])
+        else:
+            # note the python index starts from 0, but the line number starts from 1.
+            context.user_data['outline_text'].insert(parsed_text['line'], parsed_text['content'])
+    if parsed_text['intent'] == 'modify':
+        # note the python index starts from 0, but the line number starts from 1.
+        context.user_data['outline_text'][parsed_text['line'] - 1] = parsed_text['content']
+
+    await update.message.reply_text('\n'.join(context.user_data['outline_text']))
     return OUTLINE
 
 def main():
     persistence = PicklePersistence(filepath="gpt_archive.pickle")
     application = Application.builder().token(telegram_api_token).persistence(persistence).build()
 
+    regular_handlers =  [
+            # target usage
+            MessageHandler(filters.Regex('^' + target_usage + '$'), process_thoughts) 
+                for target_usage in CHOICE_TO_PROMPT.keys()
+        ] + [
+            MessageHandler(filters.VOICE & ~filters.COMMAND, transcribe_voice_message),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, set_last_message),
+        ]
+
     conversation_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler('start', start),
-        ],
+        entry_points=regular_handlers,
         states={
-            REGULAR: 
-                # target usage
-                [
-                    MessageHandler(filters.Regex('^' + target_usage + '$'), process_thoughts) 
-                        for target_usage in CHOICE_TO_PROMPT.keys()
-                ] + [
-                    MessageHandler(filters.VOICE & ~filters.COMMAND, transcribe_voice_message),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, set_last_message),
-                ],
+            REGULAR: regular_handlers,
             OUTLINE: [
                 MessageHandler(filters.VOICE & ~filters.COMMAND, outline_transcribe_voice_message),
             ],
         },
         fallbacks=[
-            CommandHandler('cancel', fall_back_to_regular),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, fall_back_to_regular),
+            CommandHandler('cancel', end_outline_mode),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, end_outline_mode),
         ],
     )
     application.add_handler(conversation_handler)
@@ -254,7 +305,7 @@ def main():
     application.add_handler(CommandHandler("clear", clear))
     application.add_handler(CommandHandler("data", data))
 
-    # We don't use ConversationHandler here because we don't need to keep track of the state.
+    # Fallback of the ConversationHandler because without a /start, the message won't be handled by the ConversationHandler.
     application.add_handler(MessageHandler(filters.VOICE & ~filters.COMMAND, transcribe_voice_message))
     for target_usage in CHOICE_TO_PROMPT.keys():
         application.add_handler(MessageHandler(filters.Regex('^' + target_usage + '$'), process_thoughts))
