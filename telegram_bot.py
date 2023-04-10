@@ -2,7 +2,14 @@ import os
 import tempfile
 import json
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import CommandHandler, MessageHandler, CallbackContext, Application, PicklePersistence
+from telegram.ext import (
+    CommandHandler,
+    ConversationHandler,
+    MessageHandler,
+    CallbackContext,
+    Application,
+    PicklePersistence
+)
 import telegram.ext.filters as filters
 
 import core
@@ -19,6 +26,8 @@ reply_keyboard = [
 ]
 markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
 
+REGULAR, OUTLINE = range(2)
+
 async def initialize_user_data(context: CallbackContext):
     """
     Initialize the user data.
@@ -34,10 +43,11 @@ async def initialize_user_data(context: CallbackContext):
     if 'history' not in context.user_data:
         context.user_data['history'] = []
 
-async def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4. Type /help for more information.', reply_markup=markup)
+    return REGULAR
 
-async def help(update: Update, context: CallbackContext):
+async def help(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("""*YaGe Voice Note Taker Bot*
 
 *Usage*: Send me a voice message, and I will transcribe it for you\. Note I am not a QA bot, and will not answer your questions\. I will only listen to you and transcribe your voice message, with paraphrasing from GPT\-4\.
@@ -48,8 +58,9 @@ async def help(update: Update, context: CallbackContext):
 /help: Display this help message\.
 /data: Display any information we had about you from our end\.
 /clear: Clear any information we had about you from our end\.""", parse_mode='MarkdownV2')
+    return REGULAR
 
-async def data(update: Update, context: CallbackContext):
+async def data(update: Update, context: CallbackContext) -> int:
     """
     Display any information we had about the user from our end.
     """
@@ -63,8 +74,9 @@ async def data(update: Update, context: CallbackContext):
         await update.message.reply_text(f"Your data is too long to be displayed. It contains {len(context.user_data['history'])} entries. The last message is {context.user_data['history'][-1]}. It records across the time period from {context.user_data['history'][0]['date']} to {context.user_data['history'][-1]['date']}.")
     else:
         await update.message.reply_text(to_send)
+    return REGULAR
 
-async def clear(update: Update, context: CallbackContext):
+async def clear(update: Update, context: CallbackContext) -> int:
     """
     Clear any information we had about the user from our end.
     """
@@ -75,10 +87,11 @@ async def clear(update: Update, context: CallbackContext):
     print(f'[{user_full_name}] /clear')
     context.user_data.clear()
     await update.message.reply_text("Your data has been cleared.")
+    return REGULAR
 
 # TODO: send out daily summaries to users.
 
-async def set_last_message(update: Update, context: CallbackContext):
+async def set_last_message(update: Update, context: CallbackContext) -> int:
     text = update.message.text
     await initialize_user_data(context)
     context.user_data['history'].append({
@@ -88,12 +101,14 @@ async def set_last_message(update: Update, context: CallbackContext):
         'history': ['set_content']
     })
     await update.message.reply_text("Your message has been set as the last message. Now you can use the buttons to transform it.")
+    return REGULAR
 
-async def warn_if_not_voice_message(update: Update, context: CallbackContext):
+async def warn_if_not_voice_message(update: Update, context: CallbackContext) -> int:
     if not update.message.voice:
         await update.message.reply_text("Please send me a voice message. I will transcribe it and paraphrase for you.")
+    return REGULAR
 
-async def process_thoughts(update: Update, context: CallbackContext):
+async def process_thoughts(update: Update, context: CallbackContext) -> int:
     if len(context.user_data['history']) == 0:
         await update.message.reply_text("You need to send me a text message first before we can work on yoru thought.")
         return
@@ -111,9 +126,9 @@ async def process_thoughts(update: Update, context: CallbackContext):
     context.user_data['history'][-1][new_text_field] = result
     print(context.user_data['history'][-1])
     await update.message.reply_text(result)
-    
+    return REGULAR
 
-async def transcribe_voice_message(update: Update, context: CallbackContext):
+async def transcribe_voice_message(update: Update, context: CallbackContext) -> int:
     chat_id = context._chat_id
     user_id = context._user_id
     member = await context.bot.get_chat_member(chat_id, user_id)
@@ -142,7 +157,7 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
     except Exception as e:
         print(f'[{user_full_name}] Error: {e}')
         await update.message.reply_text(f"Error: {e}", reply_markup=markup)
-        return
+        return REGULAR
 
     preprocessed_text = preprocess_text(transcribed_text)
     print(f'[{user_full_name}] {preprocessed_text}')
@@ -153,12 +168,18 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
         print(f'[{user_full_name}] Error: {e}')
         result_obj = {'tag': '思考', 'content': transcribed_text}
         
+    # Model switch
+    if result_obj['tag'] == '草稿':
+        await update.message.reply_text("Entering outline mode.")
+        return OUTLINE
+    
     # Some more info on the history and last_text_field:
     # The history records the order of the fields being calculated, from which how the idea got transformed could be reproduced.
     # The last_text_field records the last field that was calculated, which is used to determine which field to use as the input for the next step.
     result_obj['history'] = ['tag']
     result_obj['last_text_field'] = 'content'
-    model = 'gpt-3.5-turbo' if result_obj['tag'] == '聊天' else 'gpt-4'
+    # model = 'gpt-3.5-turbo' if result_obj['tag'] == '草稿' else 'gpt-4'
+    model = 'gpt-4'
     result_obj['model'] = model
     result_obj['history'].append('model')
     result_obj['transcribed'] = transcribed_text
@@ -178,11 +199,54 @@ async def transcribe_voice_message(update: Update, context: CallbackContext):
     except Exception as e:
         print(f'[{user_full_name}] Error: {e}')
         await update.message.reply_text(f"Error: {e}", reply_markup=markup)
-        return
+        return REGULAR
+
+    return REGULAR
+
+async def fall_back_to_regular(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text(
+        "Sorry, I didn't understand that command. Falling back to regular mode.",
+        reply_markup=markup,
+    )
+    return REGULAR
+
+async def outline_transcribe_voice_message(update: Update, context: CallbackContext) -> int:
+    # Transcribe the voice message, without GPT paraphrasing.
+    # Preprocess the messages on:
+    # 1. End the mode
+    # 2. Add a new line
+    # 3. Replace an existing line
+    await update.message.reply_text("I'm working!")
+    return OUTLINE
 
 def main():
     persistence = PicklePersistence(filepath="gpt_archive.pickle")
     application = Application.builder().token(telegram_api_token).persistence(persistence).build()
+
+    conversation_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler('start', start),
+        ],
+        states={
+            REGULAR: 
+                # target usage
+                [
+                    MessageHandler(filters.Regex('^' + target_usage + '$'), process_thoughts) 
+                        for target_usage in CHOICE_TO_PROMPT.keys()
+                ] + [
+                    MessageHandler(filters.VOICE & ~filters.COMMAND, transcribe_voice_message),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, set_last_message),
+                ],
+            OUTLINE: [
+                MessageHandler(filters.VOICE & ~filters.COMMAND, outline_transcribe_voice_message),
+            ],
+        },
+        fallbacks=[
+            CommandHandler('cancel', fall_back_to_regular),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, fall_back_to_regular),
+        ],
+    )
+    application.add_handler(conversation_handler)
 
     # on different commands - answer in Telegram
     application.add_handler(CommandHandler("start", start))
