@@ -8,7 +8,7 @@ import openai
 import io
 import json
 from pydub import AudioSegment
-from typing import Dict
+from typing import Dict, Tuple
 from prompts import PROMPTS, CHOICE_TO_PROMPT
 
 def transcribe_voice_message(filename: str) -> str:
@@ -91,6 +91,37 @@ def gpt_iterate_on_thoughts(text: str, target_usage: str) -> str:
         raise ValueError(f"Invalid target usage: {target_usage}")
     return gpt_process_text(text, system_prompt=CHOICE_TO_PROMPT[target_usage], model='gpt-4')
 
+
+async def gpt_process_text_async(text: str, system_prompt: str = PROMPTS['paraphrase'], model: str = 'gpt-4') -> Tuple[str, str]:
+    """Invokes GPT-4 API to process the text in stream mode.
+
+    Args:
+        text (str): the transcribed text to be paraphrased.
+        system_prompt (str): the system prompt to be used. Defaults to PROMPTS['paraphrase'].
+        model (str, optional): the GPT model to be used. Defaults to 'gpt-4'.
+
+    Returns:
+        str: output text.
+    """
+    gen = await openai.ChatCompletion.acreate(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text},
+        ],
+        stream=True,
+        temperature=0,
+    )
+
+
+    answer = ""
+    async for item in gen:
+        delta = item.choices[0].delta
+        if "content" in delta:
+            answer += delta.content
+            yield "not_finished", answer
+
+    yield "finished", answer,
 
 def gpt_process_text(text: str, system_prompt: str = PROMPTS['paraphrase'], model: str = 'gpt-4') -> str:
     """Invokes GPT-4 API to process the text.

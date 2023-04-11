@@ -2,7 +2,9 @@ import os
 import tempfile
 import json
 import re 
+import asyncio
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.error import BadRequest
 from telegram.ext import (
     CommandHandler,
     ConversationHandler,
@@ -16,6 +18,7 @@ import telegram.ext.filters as filters
 import core
 from core import (
     gpt_process_text,
+    gpt_process_text_async,
     convert_audio_file_to_format,
     classify_outline_intent_mode,
     gpt_iterate_on_thoughts,
@@ -226,15 +229,42 @@ async def transcribe_voice_message(update: Update, context: CallbackContext) -> 
     result_obj['last_text_field'] = 'transcribed'
     print(f'[{user_full_name}] {result_obj}')
     try:
-        paraphrased_text = gpt_process_text(result_obj['content'], PROMPTS['paraphrase'], model)
+        # Uncomment to use synchronous API
+        # paraphrased_text = gpt_process_text(result_obj['content'], PROMPTS['paraphrase'], model)
+        
+        # Uncomment to use asynchronous API
+        await update.message.reply_text(f"Paraphrased using {model.upper()}:")
+        placeholder_message = await update.message.reply_text("...")
+        await update.message.chat.send_action(action="typing")
+        previous_text = ''
+        async for status, paraphrased_text in gpt_process_text_async(result_obj['content'], PROMPTS['paraphrase'], model):
+            paraphrased_text = paraphrased_text[:4096]
+            if status != 'finished' and abs(len(paraphrased_text) - len(previous_text)) < 20:
+                continue
+            if status == 'finished' and abs(len(paraphrased_text) - len(previous_text)) == 0:
+                continue
+            try:
+                await context.bot.edit_message_text(paraphrased_text,
+                    chat_id=placeholder_message.chat_id,
+                    message_id=placeholder_message.message_id,
+                    reply_markup=target_usage_markup)
+            except BadRequest as e:
+                if str(e).startswith("Message is not modified"):
+                    continue
+                else:
+                    await context.bot.edit_message_text(paraphrased_text,
+                        chat_id=placeholder_message.chat_id,
+                        message_id=placeholder_message.message_id)
+            await asyncio.sleep(0.01)
+            previous_text = paraphrased_text 
+                 
         result_obj['paraphrased'] = paraphrased_text
         result_obj['history'].append('paraphrased')
         result_obj['date'] = update.message.date
         result_obj['last_text_field'] = 'paraphrased'
         print(f'[{user_full_name}] {paraphrased_text}')
         context.user_data['history'].append(result_obj)
-        await update.message.reply_text(f"Paraphrased using {model.upper()}:")
-        await update.message.reply_text(paraphrased_text, reply_markup=target_usage_markup)
+        # await update.message.reply_text(paraphrased_text, reply_markup=target_usage_markup)
     except Exception as e:
         print(f'[{user_full_name}] Error: {e}')
         await update.message.reply_text(f"Error: {e}", reply_markup=target_usage_markup)
