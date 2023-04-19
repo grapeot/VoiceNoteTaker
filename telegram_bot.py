@@ -3,7 +3,14 @@ import tempfile
 import json
 import re 
 import asyncio
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+
+)
 from telegram.error import BadRequest
 from telegram.ext import (
     CommandHandler,
@@ -11,7 +18,8 @@ from telegram.ext import (
     MessageHandler,
     CallbackContext,
     Application,
-    PicklePersistence
+    PicklePersistence,
+    CallbackQueryHandler,
 )
 import telegram.ext.filters as filters
 
@@ -28,7 +36,7 @@ from prompts import PROMPTS, CHOICE_TO_PROMPT
 
 OUTPUT_FORMAT = "mp3"
 
-telegram_api_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+telegram_api_token = os.environ.get('TELEGRAM_BOT_TOKEN2')
 print(f'Bot token: {telegram_api_token}')
 
 target_usage_markup = ReplyKeyboardMarkup([list(CHOICE_TO_PROMPT.keys())], resize_keyboard=True)
@@ -50,6 +58,8 @@ async def initialize_user_data(context: CallbackContext):
         context.user_data['user_id'] = user_id
     if 'history' not in context.user_data:
         context.user_data['history'] = []
+    if 'active_model' not in context.user_data:
+        context.user_data['active_model'] = 'gpt-4'
 
 async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text('Send me a voice message, and I will transcribe it for you. Note I am not a QA bot, and will not answer your questions. I will only listen to you and transcribe your voice message, with paraphrasing from GPT-4. Type /help for more information.', reply_markup=target_usage_markup)
@@ -221,7 +231,7 @@ async def transcribe_voice_message(update: Update, context: CallbackContext) -> 
     result_obj['history'] = ['tag']
     result_obj['last_text_field'] = 'content'
     # model = 'gpt-3.5-turbo' if result_obj['tag'] == '草稿' else 'gpt-4'
-    model = 'gpt-4'
+    model = context.user_data['model']
     result_obj['model'] = model
     result_obj['history'].append('model')
     result_obj['transcribed'] = transcribed_text
@@ -237,9 +247,19 @@ async def transcribe_voice_message(update: Update, context: CallbackContext) -> 
         placeholder_message = await update.message.reply_text("...")
         await update.message.chat.send_action(action="typing")
         previous_text = ''
+        message_count = 0
         async for status, paraphrased_text in gpt_process_text_async(result_obj['content'], PROMPTS['paraphrase'], model):
-            paraphrased_text = paraphrased_text[:4096]
-            if status != 'finished' and abs(len(paraphrased_text) - len(previous_text)) < 20:
+            paraphrased_text = paraphrased_text[message_count * 4096:]
+            if len(paraphrased_text) > 4096:
+                # send out the current message
+                await context.bot.edit_message_text(paraphrased_text[message_count * 4096: (message_count + 1) * 4096],
+                    chat_id=placeholder_message.chat_id,
+                    message_id=placeholder_message.message_id,
+                    reply_markup=target_usage_markup)
+                # maintain variables
+                message_count += 1
+                placeholder_message = await update.message.reply_text("...")
+            if status != 'finished' and abs(len(paraphrased_text) - len(previous_text)) < 50:
                 continue
             if status == 'finished' and abs(len(paraphrased_text) - len(previous_text)) == 0:
                 continue
@@ -317,9 +337,31 @@ async def outline_transcribe_voice_message(update: Update, context: CallbackCont
     
     return OUTLINE
 
+async def model_selection(update: Update, context: CallbackContext):
+    await initialize_user_data(context)
+    buttons = []
+    for model in ['gpt-3.5-turbo', 'gpt-4']:
+        if model == context.user_data['active_model']:
+            buttons.append(InlineKeyboardButton(text='✅ ' + model, callback_data=model))
+        else:
+            buttons.append(InlineKeyboardButton(text=model, callback_data=model))
+    model_keyboard = InlineKeyboardMarkup.from_column(buttons)
+    await update.message.reply_text('Please select a model for transcribing:', reply_markup=model_keyboard)
+
+async def model_selection_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    model = query.data
+    context.user_data['active_model'] = model
+    await update.callback_query.edit_message_text('Model selected: ' + model)
+
 def main():
     persistence = PicklePersistence(filepath="gpt_archive.pickle")
-    application = Application.builder().token(telegram_api_token).persistence(persistence).build()
+    application = Application.builder() \
+        .token(telegram_api_token) \
+        .persistence(persistence) \
+        .arbitrary_callback_data(True) \
+        .build()
 
     regular_handlers =  [
             # target usage
@@ -350,6 +392,8 @@ def main():
     application.add_handler(CommandHandler("help", help))
     application.add_handler(CommandHandler("clear", clear))
     application.add_handler(CommandHandler("data", data))
+    application.add_handler(CommandHandler("model", model_selection))
+    application.add_handler(CallbackQueryHandler(model_selection_callback, pattern='^gpt-'))
 
     # Fallback of the ConversationHandler because without a /start, the message won't be handled by the ConversationHandler.
     application.add_handler(MessageHandler(filters.VOICE & ~filters.COMMAND, transcribe_voice_message))
