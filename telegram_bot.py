@@ -9,6 +9,7 @@ from telegram import (
     ReplyKeyboardRemove,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    BotCommand,
 
 )
 from telegram.error import BadRequest
@@ -36,7 +37,7 @@ from prompts import PROMPTS, CHOICE_TO_PROMPT
 
 OUTPUT_FORMAT = "mp3"
 
-telegram_api_token = os.environ.get('TELEGRAM_BOT_TOKEN2')
+telegram_api_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 print(f'Bot token: {telegram_api_token}')
 
 target_usage_markup = ReplyKeyboardMarkup([list(CHOICE_TO_PROMPT.keys())], resize_keyboard=True)
@@ -231,7 +232,7 @@ async def transcribe_voice_message(update: Update, context: CallbackContext) -> 
     result_obj['history'] = ['tag']
     result_obj['last_text_field'] = 'content'
     # model = 'gpt-3.5-turbo' if result_obj['tag'] == '草稿' else 'gpt-4'
-    model = context.user_data['model']
+    model = context.user_data['active_model']
     result_obj['model'] = model
     result_obj['history'].append('model')
     result_obj['transcribed'] = transcribed_text
@@ -355,12 +356,22 @@ async def model_selection_callback(update: Update, context: CallbackContext):
     context.user_data['active_model'] = model
     await update.callback_query.edit_message_text('Model selected: ' + model)
 
+async def post_init(application: Application):
+    await application.bot.set_my_commands([
+        BotCommand(command="/start", description="Start the bot."),
+        BotCommand(command="/help", description="View more detailed help messages."),
+        BotCommand(command="/data", description="Check what data we store about you."),
+        BotCommand(command="/clear", description="Clear all the data we stored about you."),
+        BotCommand(command="/model", description="Select the model for transcribing."),
+    ])
+
 def main():
     persistence = PicklePersistence(filepath="gpt_archive.pickle")
     application = Application.builder() \
         .token(telegram_api_token) \
         .persistence(persistence) \
         .arbitrary_callback_data(True) \
+        .post_init(post_init) \
         .build()
 
     regular_handlers =  [
